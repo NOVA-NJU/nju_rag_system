@@ -1,0 +1,12 @@
+[submodule "NRS_data"]
+	path = NRS_data
+	url = https://github.com/NOVA-NJU/NRS_data.git
+[submodule "NRS_rag"]
+	path = NRS_rag
+	url = https://github.com/NOVA-NJU/NRS_rag.git
+[submodule "NRS_frontend"]
+	path = NRS_frontend
+	url = https://github.com/NOVA-NJU/NRS_frontend.git
+[submodule "NRS_vector"]
+	path = NRS_vector
+	url = https://github.com/NOVA-NJU/NRS_vector.git
