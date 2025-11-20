@@ -417,6 +417,20 @@ async def crawl_source(source_id: str) -> List[CrawlItem]:
             except Exception as exc:
                 print(f"[WARN] Failed to store document {item_id} in vector service: {exc}")
 
+        # preview = (content or "").strip()
+        # preview = re.sub(r"\s+", " ", preview)
+        # if len(preview) > 300:
+        #     preview = preview[:300] + "..."
+        # attachment_titles = ", ".join((att.filename or att.url or "附件") for att in attachments) if attachments else "无附件"
+        # print(
+        #     f"[CRAWLER] {source_cfg['name']} | {entry.get('title') or detail_url}\n"
+        #     f"URL: {detail_url}\n"
+        #     f"发布时间: {publish_time.isoformat()}\n"
+        #     f"正文预览: {preview or '（正文为空）'}\n"
+        #     f"附件: {attachment_titles}\n"
+        #     f"{'-' * 60}"
+        # )
+
         attachments_payload = None
         if attachments:
             attachment_dicts = []

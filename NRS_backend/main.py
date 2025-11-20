@@ -4,12 +4,14 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from .crawler import setup_crawler
+from .rag import setup_rag
 from .vector_store import setup_vector_store
 
 app = FastAPI(title="NJU Unified Backend", version="1.0.0")
 
 setup_crawler(app)
 setup_vector_store(app)
+setup_rag(app)
 
 
 @app.get("/health")

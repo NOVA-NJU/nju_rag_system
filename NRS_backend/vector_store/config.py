@@ -25,6 +25,7 @@ class VectorSettings(BaseSettings):
         env_prefix="VECTOR_",
         env_file=".env",
         case_sensitive=True,
+        extra="ignore",
     )
 
 
