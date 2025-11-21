@@ -11,6 +11,9 @@ from __future__ import annotations
 
 
 from fastapi import FastAPI
+import httpx
+import logging
+from .rag.config import get_settings
 # 导入爬虫模块的 lifespan 生命周期管理器
 from .crawler.lifecycle import crawler_lifespan  # 用于定时任务生命周期管理
 
@@ -21,12 +24,36 @@ from .vector_store import setup_vector_store  # 挂载向量库 API（/vectors/*
 
 
 # 创建主 FastAPI 应用，指定 lifespan 参数实现定时任务自动管理
+logger = logging.getLogger(__name__)
+
+
 app = FastAPI(title="NJU Unified Backend", version="1.0.0", lifespan=crawler_lifespan)
 
 # 挂载各子服务到主应用
 setup_crawler(app)         # 注册 /api/crawl 路由
 setup_vector_store(app)    # 注册 /vectors/* 路由
 setup_rag(app)             # 注册 /api/rag 路由
+
+
+async def ensure_ollama_model(model_name: str) -> None:
+    """Pull the Ollama model before serving to avoid first-call delays."""
+    settings = get_settings()
+    base_url = settings.ollama_base_url.rstrip("/")
+    url = f"{base_url}/api/pull"
+    payload = {"name": model_name, "stream": False}
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(url, json=payload)
+            response.raise_for_status()
+            logger.info("Ensured Ollama model %s is available", model_name)
+    except Exception as exc:  # pragma: no cover - best effort startup
+        logger.warning("Failed to ensure Ollama model %s: %s", model_name, exc)
+
+
+@app.on_event("startup")
+async def _on_startup() -> None:
+    settings = get_settings()
+    await ensure_ollama_model(settings.ollama_model)
 
 # 健康检查接口，前端/监控可用
 @app.get("/health")

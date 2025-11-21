@@ -5,11 +5,10 @@
 import asyncio  # 异步任务调度
 import hashlib  # 用于生成唯一ID
 import io       # 字节流处理
-import json     # 附件序列化
 import os       # 环境变量与路径
 import re       # 正则表达式
 from datetime import datetime, timezone  # 时间处理，支持UTC
-from typing import List, Optional  # 类型注解
+from typing import Any, List, Optional  # 类型注解
 from urllib.parse import parse_qs, urljoin, urlparse  # URL处理
 
 
@@ -32,7 +31,7 @@ from .config import (
     VECTOR_SYNC_ENABLED,   # 是否同步到向量库
 )
 from .models import Attachments, CrawlItem  # 附件和爬取结果数据结构
-from .storage import database  # SQLite数据库操作
+from .storage import database  # MongoDB存储助手
 from ..vector_store.bridge import store_document  # 向量库同步接口
 
 
@@ -446,16 +445,17 @@ async def crawl_source(source_id: str) -> List[CrawlItem]:
         item_id = compute_sha256(content.strip() or detail_url or "", detail_url)
         publish_time = parse_publish_time(entry.get("date"))
 
-        exists = await asyncio.to_thread(database.record_exists, item_id)
+        exists = await database.record_exists(item_id)
         if exists:
             return None
 
         metadata = {
             "url": detail_url,
-            "source_id": source_cfg["id"],
+            "source": source_cfg["id"],
             "source_name": source_cfg["name"],
-            "title": entry.get("title"),
+            "title": entry.get("title") or "",
             "publish_time": publish_time.isoformat(),
+            "content_hash": item_id,
         }
         if VECTOR_SYNC_ENABLED:
             try:
@@ -464,23 +464,25 @@ async def crawl_source(source_id: str) -> List[CrawlItem]:
                 print(f"[WARN] Failed to store document {item_id} in vector service: {exc}")
 
         attachments_payload = None
+        attachments_payload: Optional[List[dict[str, Any]]] = None
         if attachments:
-            attachment_dicts = []
+            attachments_payload = []
             for attachment in attachments:
                 data = attachment.dict()
                 data["url"] = str(data.get("url") or "")
-                attachment_dicts.append(data)
-            attachments_payload = json.dumps(attachment_dicts, ensure_ascii=False)
-        await asyncio.to_thread(
-            database.insert_record,
+                attachments_payload.append(data)
+        status = "synced" if VECTOR_SYNC_ENABLED else "pending"
+        await database.insert_record(
             item_id,
             entry.get("title") or "",
             detail_url,
             publish_time.isoformat(),
             source_cfg["id"],
             source_cfg["name"],
-            True,
-            attachments_payload,
+            content,
+            status=status,
+            attachments=attachments_payload,
+            extra_meta={"category": entry.get("type")},
         )
 
         return CrawlItem(

@@ -27,4 +27,5 @@ web_backup.txt
 TeamB.md
 
 .env
-
+mongo_data/
+ollama_data/

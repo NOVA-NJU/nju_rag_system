@@ -29,8 +29,12 @@ class RagSettings(BaseSettings):
 
     # LLM提供商配置
     llm_provider: str = Field(default="ollama", alias="LLM_PROVIDER")  # LLM提供商，默认ollama
-    ollama_base_url: str = Field(default="http://localhost:11434", alias="OLLAMA_BASE_URL")  # Ollama基础URL，默认本地
-    ollama_model: str = Field(default="qwen3:8b", alias="OLLAMA_MODEL")  # Ollama模型名称
+    ollama_base_url: str = Field(
+        default="http://svc_ollama:11434",
+        alias="OLLAMA_BASE_URL",
+        description="Base URL for the internal Ollama container on app_net",
+    )
+    ollama_model: str = Field(default="qwen2:0.5b", alias="OLLAMA_MODEL")  # Ollama模型名称
     ollama_timeout: float = Field(default=60.0, alias="OLLAMA_TIMEOUT")  # Ollama请求超时，默认60秒
 
     # OpenAI配置

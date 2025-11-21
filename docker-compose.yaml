@@ -1,0 +1,63 @@
+version: "3.9"
+
+networks:
+  app_net:
+    driver: bridge
+
+services:
+  svc_mongo:
+    image: mongo:6.0
+    container_name: svc_mongo
+    volumes:
+      - ./mongo_data:/data/db
+    networks:
+      - app_net
+
+  svc_chroma:
+    image: chromadb/chroma:latest
+    container_name: svc_chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+    volumes:
+      - ./chroma_data:/chroma/chroma
+    networks:
+      - app_net
+
+  svc_ollama:
+    image: ollama/ollama:latest
+    container_name: svc_ollama
+    restart: always
+    ports:
+      - "11434:11434"
+    volumes:
+      - ./ollama_data:/root/.ollama
+    networks:
+      - app_net
+
+  svc_nrs_backend:
+    build:
+      context: ./NRS_backend
+    container_name: svc_nrs_backend
+    depends_on:
+      - svc_mongo
+      - svc_chroma
+      - svc_ollama
+    environment:
+      - MONGO_URL=mongodb://svc_mongo:27017
+      - CHROMA_HOST=svc_chroma
+      - CHROMA_PORT=8000
+      - OLLAMA_BASE_URL=http://svc_ollama:11434
+    volumes:
+      - ./models:/app/models
+    networks:
+      - app_net
+
+  gateway:
+    build:
+      context: ./NRS_frontend
+    depends_on:
+      - svc_nrs_backend
+    ports:
+      - "80:80"
+    networks:
+      - app_net
