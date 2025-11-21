@@ -1,42 +1,58 @@
-import asyncio
-import hashlib
-import io
-import json
-import os
-import re
-from datetime import datetime
-from typing import List, Optional
-from urllib.parse import parse_qs, urljoin, urlparse
 
-from curl_cffi import requests as curl_requests
-from PyPDF2 import PdfReader
-from bs4 import BeautifulSoup
-from docx import Document
-from PIL import Image
-import pytesseract
+# 爬虫服务核心实现，包含抓取、解析、存储、同步等功能。
+# 依赖众多第三方库，支持异步、OCR、PDF/Word解析、向量同步等。
 
+import asyncio  # 异步任务调度
+import hashlib  # 用于生成唯一ID
+import io       # 字节流处理
+import json     # 附件序列化
+import os       # 环境变量与路径
+import re       # 正则表达式
+from datetime import datetime, timezone  # 时间处理，支持UTC
+from typing import List, Optional  # 类型注解
+from urllib.parse import parse_qs, urljoin, urlparse  # URL处理
+
+
+from curl_cffi import requests as curl_requests  # 高性能异步HTTP库，支持浏览器伪装
+from PyPDF2 import PdfReader  # PDF解析
+from bs4 import BeautifulSoup  # HTML解析
+from docx import Document  # Word文档解析
+from PIL import Image  # 图片处理
+import pytesseract  # OCR文字识别
+
+
+# 导入配置项和数据模型
 from .config import (
-    DETAIL_SELECTORS,
-    MAX_RETRIES,
-    REQUEST_TIMEOUT,
-    TARGET_SOURCES,
-    TESSDATA_DIR,
-    TESSERACT_CMD,
-    VECTOR_SYNC_ENABLED,
+    DETAIL_SELECTORS,      # 详情页选择器配置
+    MAX_RETRIES,           # 最大重试次数
+    REQUEST_TIMEOUT,       # 请求超时时间
+    TARGET_SOURCES,        # 目标网站源配置
+    TESSDATA_DIR,          # OCR数据目录
+    TESSERACT_CMD,         # OCR命令路径
+    VECTOR_SYNC_ENABLED,   # 是否同步到向量库
 )
-from .models import Attachments, CrawlItem
-from .storage import database
-from ..vector_store.bridge import store_document
+from .models import Attachments, CrawlItem  # 附件和爬取结果数据结构
+from .storage import database  # SQLite数据库操作
+from ..vector_store.bridge import store_document  # 向量库同步接口
 
+
+# 初始化数据库，确保表结构存在
 database.initialize()
 
+
+# 配置OCR环境变量和命令路径
 os.environ["TESSDATA_PREFIX"] = TESSDATA_DIR
 pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
 
+
+# 列表页翻页URL正则匹配
 PAGINATION_PATTERN = re.compile(r"(list)(\d+)(\.htm)$", re.IGNORECASE)
 
 
+
+# 全局异步HTTP会话，模拟Chrome浏览器
 ASYNC_HTTP = curl_requests.AsyncSession(impersonate="chrome120")
+
 
 
 async def fetch_html(
@@ -45,7 +61,11 @@ async def fetch_html(
     timeout: int = REQUEST_TIMEOUT,
     retries: int = MAX_RETRIES,
 ) -> str:
-    """Fetch HTML with retry/backoff using curl_cffi's impersonation."""
+    """
+    异步获取网页HTML内容，带重试和退避机制。
+    参数：url 网页地址，headers 请求头，timeout 超时，retries 最大重试。
+    失败时抛出RuntimeError。
+    """
     for attempt in range(retries):
         try:
             response = await ASYNC_HTTP.get(url, headers=headers, timeout=timeout)
@@ -60,13 +80,17 @@ async def fetch_html(
     raise RuntimeError(f"Failed to fetch {url}")
 
 
+
 async def download_binary(
     url: str,
     headers: dict,
     timeout: int = REQUEST_TIMEOUT,
     retries: int = MAX_RETRIES,
 ) -> Optional[bytes]:
-    """Download binary assets (images, pdfs, docx) through the shared async session."""
+    """
+    异步下载二进制文件（图片、PDF、Word等），带重试。
+    参数同fetch_html。失败时返回None。
+    """
     for attempt in range(retries):
         try:
             response = await ASYNC_HTTP.get(url, headers=headers, timeout=timeout)
@@ -82,8 +106,12 @@ async def download_binary(
     return None
 
 
+
 def normalize_url(base_url: str, url_el) -> Optional[str]:
-    """Turn relative, protocol-relative or absolute attributes into absolute URLs."""
+    """
+    将相对、协议相对或绝对URL属性转为绝对URL。
+    参数：base_url 基准域名，url_el 可能为标签或字符串。
+    """
     href = None
     if isinstance(url_el, str):
         href = url_el.strip()
@@ -102,8 +130,12 @@ def normalize_url(base_url: str, url_el) -> Optional[str]:
     return urljoin(base_url, href)
 
 
+
 def parse_list(html: str, selectors: dict, base_url: str) -> List[dict]:
-    """Extract list-page entries using the provided CSS selectors."""
+    """
+    用CSS选择器解析列表页，提取每条公告/文章的基本信息。
+    返回：包含title、date、url、type的字典列表。
+    """
     soup = BeautifulSoup(html, "lxml")
     items = soup.select(selectors["item_container"])
     results = []
@@ -126,8 +158,11 @@ def parse_list(html: str, selectors: dict, base_url: str) -> List[dict]:
     return results
 
 
+
 def build_paginated_urls(list_url: str, max_pages: int) -> List[str]:
-    """Generate paginated list URLs like list1.htm, list2.htm, ... up to max_pages."""
+    """
+    生成所有翻页的列表URL（如list1.htm、list2.htm...），支持最大页数。
+    """
     if max_pages <= 1:
         return [list_url]
 
@@ -144,20 +179,27 @@ def build_paginated_urls(list_url: str, max_pages: int) -> List[str]:
     return urls
 
 
+
 def parse_publish_time(date_str: Optional[str]) -> datetime:
-    """Best-effort parse of date strings, defaulting to current UTC when absent."""
+    """
+    尽力解析日期字符串，支持多种格式，失败则返回当前UTC时间（带时区）。
+    """
     if not date_str:
-        return datetime.utcnow()
+        return datetime.now(timezone.utc)
     for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d"):
         try:
             return datetime.strptime(date_str, fmt)
         except ValueError:
             continue
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
+
 
 
 def extract_text_content(soup: BeautifulSoup, selector_cfg: Optional[dict]) -> str:
-    """Grab the textual portion of the detail page according to selector config."""
+    """
+    按配置提取详情页正文内容。
+    支持多节点聚合，返回纯文本。
+    """
     if not selector_cfg:
         return ""
     container = soup.select_one(selector_cfg.get("item_container", ""))
@@ -172,8 +214,12 @@ def extract_text_content(soup: BeautifulSoup, selector_cfg: Optional[dict]) -> s
     return "\n".join(filter(None, text_chunks))
 
 
+
 async def perform_ocr_from_url(image_url: str, headers: dict) -> str:
-    """Download an image and run pytesseract OCR if the executable is configured."""
+    """
+    下载图片并用pytesseract进行OCR识别。
+    仅当OCR命令配置有效时才执行。
+    """
     if not TESSERACT_CMD:
         return ""
 
@@ -416,20 +462,6 @@ async def crawl_source(source_id: str) -> List[CrawlItem]:
                 await store_document(item_id, content, metadata)
             except Exception as exc:
                 print(f"[WARN] Failed to store document {item_id} in vector service: {exc}")
-
-        # preview = (content or "").strip()
-        # preview = re.sub(r"\s+", " ", preview)
-        # if len(preview) > 300:
-        #     preview = preview[:300] + "..."
-        # attachment_titles = ", ".join((att.filename or att.url or "附件") for att in attachments) if attachments else "无附件"
-        # print(
-        #     f"[CRAWLER] {source_cfg['name']} | {entry.get('title') or detail_url}\n"
-        #     f"URL: {detail_url}\n"
-        #     f"发布时间: {publish_time.isoformat()}\n"
-        #     f"正文预览: {preview or '（正文为空）'}\n"
-        #     f"附件: {attachment_titles}\n"
-        #     f"{'-' * 60}"
-        # )
 
         attachments_payload = None
         if attachments:
