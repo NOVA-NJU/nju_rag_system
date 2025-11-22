@@ -1,4 +1,47 @@
 
+"""
+爬虫服务核心模块 (Crawler Services Core Module)
+
+本模块实现了完整的网页爬虫功能，支持从配置的网站源抓取、解析和存储公告/文章数据。
+主要功能包括：
+
+核心功能：
+- 异步网页抓取：使用curl_cffi库模拟浏览器行为，支持重试和超时机制
+- 内容解析：支持HTML解析、PDF/Word文档解析、图片OCR识别
+- 数据存储：SQLite数据库持久化存储，支持附件元数据
+- 向量同步：可选同步到向量数据库以支持语义搜索
+
+技术特性：
+- 异步并发：使用asyncio实现高并发抓取，控制最大并发数避免被封
+- 多格式支持：HTML文本、PDF文档、Word文档、图片OCR
+- 智能解析：CSS选择器配置化，支持复杂页面结构
+- 去重机制：基于内容SHA256哈希的去重，避免重复抓取
+- 错误处理：完善的异常处理和日志记录
+
+主要组件：
+- fetch_html(): 异步网页抓取核心函数
+- crawl_source(): 完整爬虫流程编排
+- parse_detail_page(): 详情页内容解析
+- 各种辅助函数：URL处理、时间解析、文件下载等
+
+依赖库：
+- curl_cffi: 异步HTTP客户端，浏览器伪装
+- BeautifulSoup: HTML解析
+- PyPDF2: PDF文本提取
+- python-docx: Word文档解析
+- pytesseract: OCR文字识别
+- PIL: 图片处理
+
+配置要求：
+- 需要在config.py中配置目标网站信息
+- OCR功能需要安装Tesseract
+- 向量同步需要配置向量服务
+
+使用示例：
+    from .services import crawl_source
+    items = await crawl_source("source_id")
+"""
+
 # 爬虫服务核心实现，包含抓取、解析、存储、同步等功能。
 # 依赖众多第三方库，支持异步、OCR、PDF/Word解析、向量同步等。
 
